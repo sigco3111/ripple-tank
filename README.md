@@ -1,49 +1,107 @@
-# 🌊 ripple-tank
+# 🌀 ripple-tank
 
-> WebGL2 기반 물결 파동 간섭(Ripple Tank) 시뮬레이션 — 고해상도 ping-pong height map 알고리즘
+> WebGL2 기반 파동 간섭(Ripple Tank) 시뮬레이션 — 고해상도 ping-pong height map 알고리즘
 
-마우스로 클릭하는 지점에서 물결이 퍼져나가고, 벽이나 장애물에 부딪히면 반사(Reflection)되며, 두 물결이 만날 때 보강/상쇄 간섭이 일어나는 과정을 고해상도 높이 맵(Height Map) 알고리즘으로 시뮬레이션합니다. 물 밑의 바닥 타일이 굴절되어 보이는 효과까지 리얼하게 구현했습니다.
+마우스로 클릭하는 지점에서 파동이 퍼져나가고, 장애물에 부딪히면 반사(Neumann 경계)되며, 두 ripple이 만나면 보강/상쇄 간섭이 자연 발생합니다. RGBA32F ping-pong 텍스처(기본 1024×1024)에서 파동방정식을 풀고, 굴절·반사·수심 기반 색조·움직이는 caustics까지 한 번에 처리해 60fps로 그립니다. 페이지 로드마다 달라지는 시드 기반 자연 호반 바닥 위에, 동일한 시드는 항상 동일한 배치를 보장합니다.
 
-![at-rest](docs/screenshot-rest.png)
+[🇰🇷 한국어 (기본)](#) · [🇺🇸 English](./README.en.md)
 
 ---
 
-## ✨ 주요 기능
+## 🎬 라이브 데모
 
-| 기능 | 구현 |
+> **👉 [https://ripple-tank.vercel.app/](https://ripple-tank.vercel.app/)** — 브라우저에서 바로 실행 (WebGL2, 60fps)
+
+| | |
 |---|---|
-| 클릭으로 물결 발생 | 마우스/터치 + 드래그 강도 스케일링 |
-| 랜덤 지형 | 페이지 로드 시마다 다른 배치 (5-9개 장애물, circle/ellipse/polygon/wall 혼합) |
-| 시드 기반 결정성 | `?seed=N` 또는 `?seed=문자열` — 같은 seed는 항상 같은 배치 |
-| 장애물 반사 | Neumann 경계 — 모든 도형 타입에서 일관 |
-| 벽 반사 | 경계 텍스처의 1-texel 외곽 = 캔버스 가장자리 |
-| 두 ripple의 간섭 | wave equation의 선형성으로 자연 발생 |
-| 고해상도 height map | `RGBA32F` ping-pong 텍스처, 기본 1024×1024 |
-| **자연 호반 배경** | FBM 모래 + 능선 잔물결 + Voronoi 자갈 + 큰 바위 + grain 노이즈 |
-| **움직이는 caustics** | 두 개의 표류 FBM 필드를 inverted blend로 자연 광 패턴 생성 |
-| 타일 굴절 | 그라디언트 → 노멀 → UV 변위 + chromatic aberration |
-| 반사(specular) | Blinn-Phong, 광원 방향 perturbation |
-| 수심 기반 색조 | Beer-Lambert 식 기반 trough=짙은 청색, peak=밝은 청록색 |
-| 정지 시 수중감 | 미세 ambient warp + vignette + caustics + 푸른빛 바닥 |
-| UI | damping 슬라이더, 일시정지, 리셋, 🎲 randomize, seed 표시, FPS, SIM 해상도 |
-| 테스트 모드 | `?test=1` (결정론적 baseline), `?res=512\|1024\|2048` |
+| ![Demo](https://img.shields.io/badge/Live-Demo-7C3AED?style=for-the-badge&logo=vercel&logoColor=white) | [![Repo](https://img.shields.io/badge/GitHub-sigco3111%2Fripple--tank-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sigco3111/ripple-tank) |
+| ![Status](https://img.shields.io/badge/Status-Live-22C55E?style=flat-square) | ![Stack](https://img.shields.io/badge/Stack-WebGL2-FF6F00?style=flat-square&logo=webgl&logoColor=white) |
+| ![License](https://img.shields.io/badge/License-MIT-F1C40F?style=flat-square) | ![Deps](https://img.shields.io/badge/Dependencies-0-9CA3AF?style=flat-square) |
+
+### 🎮 빠른 사용법
+1. 위 데모 링크 클릭 → 브라우저에서 페이지 열기
+2. **클릭** — 해당 위치에서 ripple 발생
+3. **클릭 + 드래그** — 드래그 거리에 비례해 진폭 1.0×~1.5× 증폭
+4. **🎲 Randomize** — 새 시드로 장애물 배치 + 호반 바닥 재생성
+5. **Damping 슬라이더** — 0.950 (급속 감쇠) ↔ 0.999 (거의 영구)
 
 ---
 
-## 🚀 실행 방법 (Quick Start)
+## 🤖 생성 정보
 
-### 방법 1 — 그냥 브라우저로 열기 (가장 간단)
+이 프로젝트의 코드는 아래 모델과 프롬프트를 이용해 **자동으로 생성**되었습니다.
+
+| 항목 | 값 |
+|---|---|
+| **모델** | minimax-M3 |
+| **실행 환경** | OpenCode CLI |
+| **저장소** | [`sigco3111/ripple-tank`](https://github.com/sigco3111/ripple-tank) |
+| **라이선스** | MIT |
+| **의존성** | 없음 (단일 HTML + 인라인 WebGL2 셰이더) |
+
+### 📝 사용된 프롬프트 (원문)
+
+```
+WebGL2를 사용해서 클릭하는 지점에서 파동이 퍼져나가고, 장애물에 부딪히면
+반사되며, 두 파동이 만나면 보강/상쇄 간섭이 일어나는 Ripple Tank 시뮬레이션을
+구현해줘. RGBA32F ping-pong 텍스처에 이산화된 2D 파동방정식을 풀고,
+굴절(refraction)·반사(specular)·수심 기반 색조·움직이는 caustics 효과로
+자연스러운 수면처럼 보이게 해줘. 호반 바닥은 FBM 모래 + 능선 잔물결 +
+Voronoi 자갈 + 큰 바위 + grain 노이즈로 절차적 생성하고, 페이지 로드 시
+mulberry32 PRNG로 5-9개 장애물(circle/ellipse/polygon/wall)을 랜덤 배치해줘.
+?seed=N 또는 ?seed=문자열 로 같은 시드는 항상 같은 배치를 보장하고,
+?test=1 은 결정론적 baseline (damping=0.970, seed=0) 으로 회귀 테스트용.
+모든 의존관계의 코드를 하나의 HTML에 담는 형태로 작성.
+```
+
+---
+
+## ✨ 주요 특징
+
+- 🌊 **파동방정식 솔버** — 이산화된 2D wave equation, `r²=0.5` (CFL 한계 안정)
+- 🔁 **Ping-Pong 텍스처** — `RGBA32F` 두 장을 번갈아 렌더 타겟, 1024×1024 기본
+- 🧱 **Neumann 경계 반사** — 별도 boundary 텍스처 + 셰이더 `mix(neighbor, center, mask)`
+- 💧 **자연스러운 굴절** — 그라디언트 → 노멀 → UV 변위 + chromatic aberration
+- ✨ **이동 caustics** — 두 표류 FBM 필드를 inverted blend로 자연 광 패턴 생성
+- 🏖️ **절차적 호반 바닥** — FBM 모래 + 능선 + Voronoi 자갈 + 큰 바위 + grain
+- 🎲 **시드 기반 결정성** — `?seed=N` 또는 `?seed=문자열` (FNV-1a 해시)
+- 🧪 **테스트 모드** — `?test=1` (damping=0.970, seed=0, 결정론적 baseline)
+- 📦 **단일 HTML** — 외부 의존성 0개, CDN·폰트·import 없음
+- 🔒 **온디바이스** — 모든 렌더링·물리가 브라우저 안에서 처리됨
+
+---
+
+## 🚀 실행 방법
+
+### 방법 1: 그냥 브라우저로 열기 (가장 간단)
 ```bash
 open index.html        # macOS
 xdg-open index.html    # Linux
 start index.html       # Windows
 ```
 
-### 방법 2 — 로컬 정적 서버 (권장)
+### 방법 2: 로컬 서버 (권장)
 ```bash
 python3 -m http.server 8000
 # → http://localhost:8000
 ```
+
+### 방법 3: 라이브 데모 (Vercel)
+배포 후 URL이 발급되면 별도 설치 없이 바로 확인 가능합니다.
+👉 https://ripple-tank.vercel.app/
+
+---
+
+## 🎮 조작법
+
+| 입력 | 효과 |
+|---|---|
+| **클릭** | 해당 위치에 ripple 발생 |
+| **클릭 + 드래그** | 드래그 거리에 비례해 amplitude 1.0×~1.5× 증폭 |
+| **🎲 Randomize 버튼** | 새 시드 → 새 지형 배치 + 호반 바닥 재생성 + URL 갱신 |
+| **Damping 슬라이더** | 0.950 (급속 감쇠) ↔ 0.999 (거의 영구) |
+| **Pause 버튼** | 시뮬레이션 정지, 마지막 프레임 유지 |
+| **Reset 버튼** | height field 초기화 (장애물은 유지) |
 
 ### URL 파라미터
 
@@ -60,20 +118,77 @@ python3 -m http.server 8000
 
 ---
 
-## 🎮 조작
+## 🛠️ 기술 스택
 
-| 동작 | 효과 |
+| 영역 | 사용 기술 |
 |---|---|
-| **클릭** | 해당 위치에 ripple 발생 |
-| **클릭 + 드래그** | 드래그 거리에 비례해 amplitude 1.0× ~ 1.5× 증폭 |
-| **🎲 Randomize 버튼** | 새 시드 생성 → 새 지형 배치 + URL에 seed 기록 |
-| **Damping 슬라이더** | 0.950 (급속 감쇠) ↔ 0.999 (거의 영구) |
-| **Pause 버튼** | 시뮬레이션 정지, 마지막 프레임 유지 |
-| **Reset 버튼** | height field 초기화 (장애물은 유지) |
+| **렌더링** | WebGL2 (GLSL ES 3.00) |
+| **시뮬레이션** | RGBA32F ping-pong FBO (이산 파동방정식) |
+| **경계 처리** | Neumann boundary texture + 셰이더 mix |
+| **굴절** | 그라디언트 → 노멀 → UV 변위 + chromatic aberration |
+| **반사** | Blinn-Phong (perturbed half-vector) |
+| **수심 색조** | Beer-Lambert 식 |
+| **호반 바닥** | 절차적 FBM + Voronoi + 능선 + grain |
+| **의존성** | 없음 (Vanilla JS + 인라인 GLSL) |
 
 ---
 
-## 🧠 동작 원리 (How It Works)
+## 📂 프로젝트 구조
+
+```
+ripple-tank/
+├── index.html               # 단일 HTML (HTML + CSS + JS + GLSL 모두 인라인)
+├── README.md                # 한국어 (기본)
+├── README.en.md             # English (옵션)
+├── docs/                    # 검증 스크린샷
+│   ├── screenshot-pond-hero.png
+│   ├── screenshot-pond-rest.png
+│   ├── screenshot-pond-variant.png
+│   ├── screenshot-propagation.png
+│   ├── screenshot-interference.png
+│   ├── screenshot-refraction.png
+│   ├── screenshot-random-terrain.png
+│   └── screenshot-rest.png
+└── .gitignore               # oh-my-opencode 내부 상태 제외
+```
+
+**외부 의존성: 0개.** CDN 없음, 외부 폰트 없음, 외부 JS/CSS 없음, `fetch`/`import`/`Worker` 없음. `file://`로 직접 열어도 동작.
+
+---
+
+## 🎨 디자인 결정
+
+브레인스토밍 단계에서 내린 결정 4가지:
+
+| 결정 포인트 | 선택 | 이유 |
+|---|---|---|
+| **렌더 백엔드** | WebGL2 + RGBA32F ping-pong | CPU 메쉬 격자보다 1024²도 60fps 유지, GPGPU 패러다임 그대로 활용 |
+| **경계 처리** | Neumann `mix(neighbor, center, mask)` | 별도 분기 없이 SIMD화 가능, 모든 도형 타입에서 일관 |
+| **시드 시스템** | mulberry32 PRNG + FNV-1a 해시 | 정수/문자열 모두 결정성 보장, 회귀 테스트 가능 |
+| **호반 베이크** | 1024² RGBA8 한 번 베이크 + 시드 변형 | 렌더 비용 0, 동일 시드 동일 배치, 그리드 패턴 제거 |
+
+### 직접 커스터마이즈하고 싶다면
+
+`index.html` 내 `RENDER_FS` / `SIM_FS` 상단에서 다음 상수를 조정하면 분위기를 바꿀 수 있어요:
+
+```glsl
+// RENDER_FS 상단
+uniform float u_refractStrength;   // 굴절 강도 (기본 0.045)
+uniform float u_aberration;        // 색수차 (기본 0.0025)
+uniform float u_staticWarpAmp;     // 정지 시 ambient warp (기본 0.0015)
+uniform float u_tileScale;         // 타일 개수 / 짧은 변 (기본 14.0)
+
+// SIM_FS / JS
+const damping = 0.985;             // 0.950~0.999 슬라이더
+const clickAmplitude = 0.45;       // 클릭 impulse 진폭
+const SIM_SIZE = 1024;             // 512 / 1024 / 2048
+```
+
+고급 사용자용: `generateObstacles(seed)` 함수를 수정해 장애물 분포를 바꿔보거나, `TILE_FS`의 FBM 파라미터를 조정해 호반 바닥 텍스처를 완전히 다른 톤으로 바꿀 수도 있어요.
+
+---
+
+## 🧠 동작 원리
 
 ### 1. Wave Equation (Discrete)
 ```
@@ -100,7 +215,7 @@ new_h *= damping
 - 별도 FBO나 blend state 없이 시뮬 패스 안에서 처리
 
 ### 5. 굴절 렌더링
-```
+```glsl
 gradient:  dx = h_right - h_left,  dy = h_up - h_down
 normal:    N = normalize(vec3(-dx, 1.0, -dy))
 refract:   uv_offset = clamp((dx, dy) * 0.045, ±0.04)
@@ -131,20 +246,7 @@ tint:      depth_t = clamp(-h * 1.4 + 0.5, 0, 1)
 
 ---
 
-## 📂 프로젝트 구조
-
-```
-ripple-tank/
-├── index.html      # 단일 HTML (HTML + CSS + JS + GLSL 모두 인라인)
-├── README.md       # 한국어
-└── .gitignore      # oh-my-opencode 내부 상태 제외
-```
-
-**외부 의존성: 0개.** CDN 없음, 외부 폰트 없음, 외부 JS/CSS 없음, `fetch`/`import`/`Worker` 없음. `file://` 로 직접 열어도 동작.
-
----
-
-## 🔬 검증 (Verification)
+## 🔬 검증
 
 Playwright headless Chromium으로 11개 시나리오 검증 완료 (모두 PASS):
 
@@ -162,23 +264,7 @@ Playwright headless Chromium으로 11개 시나리오 검증 완료 (모두 PASS
 | S10 | Wave propagation | 클릭 후 2초 → 동심원 확장 |
 | S11 | 시드=0 호반 baseline | `docs/screenshot-pond-rest.png` |
 
-`window.__ripple_state()` inspector, `__ripple_click`, `__ripple_reset`, `__ripple_seed(n|'s')`, `__ripple_randomize()` 프로그래매틱 훅.
-
----
-
-## ⚙️ 튜닝 상수
-
-`index.html` 내 `RENDER_FS` / `SIM_FS` 상단에서 조정 가능:
-
-| 상수 | 기본값 | 의미 |
-|---|---|---|
-| `u_refractStrength` | 0.045 | 굴절 강도 |
-| `u_aberration` | 0.0025 | 색수차 |
-| `u_staticWarpAmp` | 0.0015 | 정지 시 ambient warp |
-| `u_tileScale` | 14.0 | 타일 개수 / 짧은 변 |
-| `damping` (slider) | 0.985 | 감쇠 계수 |
-| `click amplitude` | 0.45 | 클릭 impulse 진폭 |
-| `SIM_SIZE` | 1024 | 시뮬레이션 텍스처 크기 |
+`window.__ripple_state()` inspector, `__ripple_click`, `__ripple_reset`, `__ripple_seed(n|'s')`, `__ripple_randomize()` 프로그래매틱 훅 사용 가능.
 
 ---
 
