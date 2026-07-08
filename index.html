@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ripple Tank — WebGL2</title>
+<style>
+  :root {
+    --bg: #02060a;
+    --ui-bg: rgba(8, 14, 22, 0.55);
+    --ui-border: rgba(255, 255, 255, 0.08);
+    --ui-text: #d8e4f0;
+    --ui-text-dim: #8b9aac;
+    --accent: #5cc8ff;
+    --accent-glow: rgba(92, 200, 255, 0.4);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+    color: var(--ui-text);
+    -webkit-font-smoothing: antialiased;
+  }
+  #pool {
+    display: block;
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    cursor: crosshair;
+    touch-action: none;
+    background: var(--bg);
+  }
+  #ui {
+    position: fixed;
+    top: 18px;
+    right: 18px;
+    width: 238px;
+    padding: 14px 16px 12px;
+    background: var(--ui-bg);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid var(--ui-border);
+    border-radius: 12px;
+    z-index: 10;
+    user-select: none;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+  #ui .title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ui-text);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #ui .title::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent-glow);
+  }
+  #ui .row {
+    margin-bottom: 12px;
+  }
+  #ui .row:last-of-type {
+    margin-bottom: 0;
+  }
+  #ui label {
+    font-size: 11px;
+    color: var(--ui-text-dim);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+  #ui label .val {
+    color: var(--ui-text);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    font-size: 12px;
+  }
+  #ui input[type="range"] {
+    width: 100%;
+    margin: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  #ui input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 6px var(--accent-glow);
+    border: none;
+  }
+  #ui input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 6px var(--accent-glow);
+  }
+  #ui .buttons {
+    display: flex;
+    gap: 6px;
+  }
+  #ui button {
+    flex: 1;
+    padding: 7px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--ui-border);
+    color: var(--ui-text);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    font-family: inherit;
+  }
+  #ui button:hover {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(92, 200, 255, 0.3);
+  }
+  #ui button:active {
+    transform: translateY(1px);
+  }
+  #ui button.active {
+    background: rgba(92, 200, 255, 0.18);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  #ui .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding-top: 12px;
+    margin-top: 4px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  #ui .stat {
+    font-size: 10px;
+    color: var(--ui-text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  #ui .stat .stat-val {
+    display: block;
+    color: var(--ui-text);
+    font-size: 16px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    margin-top: 3px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  #ui .hint {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--ui-text-dim);
+    letter-spacing: 0.02em;
+  }
+  #fallback {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--ui-text);
+    text-align: center;
+    z-index: 100;
+  }
+  #fallback.visible { display: flex; }
+  #fallback .box {
+    max-width: 460px;
+  }
+  #fallback h1 {
+    font-size: 22px;
+    font-weight: 500;
+    margin: 0 0 14px;
+    color: var(--accent);
+    letter-spacing: 0.02em;
+  }
+  #fallback p {
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--ui-text-dim);
+    margin: 0;
+  }
+</style>
+</head>
+<body>
+<canvas id="pool"></canvas>
+<div id="ui">
+  <div class="title">Ripple Tank</div>
+  <div class="row">
+    <label>Damping <span class="val" id="dampingVal">0.985</span></label>
+    <input type="range" id="damping" min="0.950" max="0.999" step="0.001" value="0.985">
+  </div>
+  <div class="row buttons">
+    <button id="pause" type="button">Pause</button>
+    <button id="reset" type="button">Reset</button>
+  </div>
+  <div class="stats">
+    <div class="stat">FPS<div class="stat-val" id="fps">0</div></div>
+    <div class="stat">Sim Res<div class="stat-val" id="simRes">1024</div></div>
+  </div>
+  <div class="hint">Click &amp; drag to splash. Damping 0.999 rings forever; 0.950 dies fast.</div>
+</div>
+<div id="fallback">
+  <div class="box">
+    <h1>WebGL2 not supported</h1>
+    <p>Your browser does not provide a WebGL2 context with RGBA32F render targets. Try a recent desktop Chrome, Edge, Firefox, or Safari.</p>
+  </div>
+</div>
+<script>
+'use strict';
+(function() {
+  // ============================================================
+  // CONFIG / URL PARAMS
+  // ============================================================
+  var PARAMS = new URLSearchParams(location.search);
+  var TEST_MODE = PARAMS.has('test');
+  var resRaw = parseInt(PARAMS.get('res'), 10);
+  var SIM_SIZE = (resRaw === 512 || resRaw === 1024 || resRaw === 2048) ? resRaw : 1024;
+  var FLOOR_TEX_SIZE = 1024;
+
+  // Damping range
+  var DAMPING_MIN = 0.950;
+  var DAMPING_MAX = 0.999;
+  var DAMPING_DEFAULT = TEST_MODE ? 0.970 : 0.985;
+
+  // Visual constants
+  var REFRACT_STRENGTH = 0.045;
+  var ABERRATION = 0.0025;
+  var TILE_SCALE = 14.0;
+  var STATIC_WARP_DEFAULT = TEST_MODE ? 0.0 : 0.0015;
+  var LIGHT_DIR = [0.30, 0.85, 0.40]; // pre-normalized in JS
+  (function() {
+    var l = Math.hypot(LIGHT_DIR[0], LIGHT_DIR[1], LIGHT_DIR[2]);
+    LIGHT_DIR[0] /= l; LIGHT_DIR[1] /= l; LIGHT_DIR[2] /= l;
+  })();
+  var MAX_IMPULSES = 16;
+  var CLICK_AMP = 0.45;
+  var CLICK_SIGMA = 0.012;
+  var DRAG_AMP_MAX = 1.5; // up to 1.5x at max drag
+
+  // ============================================================
+  // DOM
+  // ============================================================
+  var canvas = document.getElementById('pool');
+  var fallbackEl = document.getElementById('fallback');
+  var dampingInput = document.getElementById('damping');
+  var dampingValEl = document.getElementById('dampingVal');
+  var pauseBtn = document.getElementById('pause');
+  var resetBtn = document.getElementById('reset');
+  var fpsEl = document.getElementById('fps');
+  var simResEl = document.getElementById('simRes');
+  simResEl.textContent = String(SIM_SIZE);
+
+  // ============================================================
+  // SHADERS — GLSL ES 3.00
+  // ============================================================
+  var FULLSCREEN_VS = [
+    '#version 300 es',
+    'precision highp float;',
+    'layout(location = 0) in vec2 a_pos;',
+    'out vec2 v_uv;',
+    'void main(){',
+    '  v_uv = a_pos * 0.5 + 0.5;',
+    '  gl_Position = vec4(a_pos, 0.0, 1.0);',
+    '}'
+  ].join('\n');
+
+  // SIM_FS — wave-equation update + inline Gaussian impulses (Method C).
+  // R = current height, G = previous height. Reads neighbor texelFetch (NEAREST),
+  // Neumann reflection via mix() against boundary mask.
+  var SIM_FS = [
+    '#version 300 es',
+    'precision highp float;',
+    '',
+    'uniform sampler2D u_state;',
+    'uniform sampler2D u_boundary;',
+    'uniform vec2  u_texel;',
+    'uniform float u_damping;',
+    'uniform int   u_impulseCount;',
+    'uniform vec4  u_impulses[16];',
+    '',
+    'out vec4 fragColor;',
+    '',
+    'void main(){',
+    '  ivec2 here = ivec2(gl_FragCoord.xy);',
+    '  ivec2 size = textureSize(u_state, 0);',
+    '',
+    '  ivec2 xL = clamp(here + ivec2(-1,  0), ivec2(0), size - 1);',
+    '  ivec2 xR = clamp(here + ivec2( 1,  0), ivec2(0), size - 1);',
+    '  ivec2 yD = clamp(here + ivec2( 0, -1), ivec2(0), size - 1);',
+    '  ivec2 yU = clamp(here + ivec2( 0,  1), ivec2(0), size - 1);',
+    '',
+    '  vec4  cur = texelFetch(u_state, here, 0);',
+    '  float hC  = cur.r;',
+    '  float hP  = cur.g;',
+    '',
+    '  float bC = texelFetch(u_boundary, here, 0).r;',
+    '',
+    '  float hL = texelFetch(u_state, xL, 0).r;',
+    '  float hR = texelFetch(u_state, xR, 0).r;',
+    '  float hD = texelFetch(u_state, yD, 0).r;',
+    '  float hU = texelFetch(u_state, yU, 0).r;',
+    '',
+    '  float bL = texelFetch(u_boundary, xL, 0).r;',
+    '  float bR = texelFetch(u_boundary, xR, 0).r;',
+    '  float bD = texelFetch(u_boundary, yD, 0).r;',
+    '  float bU = texelFetch(u_boundary, yU, 0).r;',
+    '',
+    '  hL = mix(hL, hC, bL);',
+    '  hR = mix(hR, hC, bR);',
+    '  hD = mix(hD, hC, bD);',
+    '  hU = mix(hU, hC, bU);',
+    '',
+    '  float newH = (hL + hR + hD + hU) * 0.5 - hP;',
+    '  newH *= u_damping;',
+    '  newH *= (1.0 - bC);',
+    '',
+    '  if (u_impulseCount > 0) {',
+    '    vec2 uv = gl_FragCoord.xy * u_texel;',
+    '    for (int i = 0; i < 16; ++i) {',
+    '      if (i >= u_impulseCount) break;',
+    '      vec4 imp = u_impulses[i];',
+    '      vec2 d = uv - imp.xy;',
+    '      float s2 = max(imp.w * imp.w, 1e-8);',
+    '      float g  = exp(-dot(d, d) / (2.0 * s2));',
+    '      newH += imp.z * g * (1.0 - bC);',
+    '    }',
+    '  }',
+    '',
+    '  fragColor = vec4(newH, hC, 0.0, 1.0);',
+    '}'
+  ].join('\n');
+
+  // RENDER_FS — gradient → refraction → chromatic aberration → spec → tint → vignette.
+  var RENDER_FS = [
+    '#version 300 es',
+    'precision highp float;',
+    '',
+    'uniform sampler2D u_state;',
+    'uniform sampler2D u_boundary;',
+    'uniform sampler2D u_floor;',
+    '',
+    'uniform vec2  u_texel;',
+    'uniform vec2  u_canvasSize;',
+    'uniform float u_time;',
+    'uniform float u_refractStrength;',
+    'uniform float u_aberration;',
+    'uniform float u_tileScale;',
+    'uniform float u_staticWarpAmp;',
+    'uniform vec3  u_lightDir;',
+    '',
+    'in  vec2 v_uv;',
+    'out vec4 fragColor;',
+    '',
+    'float hash21(vec2 p){',
+    '  p = fract(p * vec2(123.34, 456.21));',
+    '  p += dot(p, p + 45.32);',
+    '  return fract(p.x * p.y);',
+    '}',
+    'float vnoise(vec2 p){',
+    '  vec2 i = floor(p), f = fract(p);',
+    '  vec2 u = f * f * (3.0 - 2.0 * f);',
+    '  return mix(mix(hash21(i),                  hash21(i + vec2(1.0, 0.0)), u.x),',
+    '             mix(hash21(i + vec2(0.0,1.0)),  hash21(i + vec2(1.0, 1.0)), u.x),',
+    '             u.y);',
+    '}',
+    'float fbm(vec2 p){',
+    '  float v = 0.0, a = 0.5;',
+    '  for (int k = 0; k < 4; ++k){ v += a * vnoise(p); p *= 2.03; a *= 0.5; }',
+    '  return v;',
+    '}',
+    '',
+    'vec3 stoneColor(vec2 uv, float dx, float dy){',
+    '  vec3 N = normalize(vec3(-dx, 0.4, -dy));',
+    '  vec3 L = u_lightDir;',
+    '  float diff = clamp(dot(N, L), 0.0, 1.0);',
+    '  float ao   = 0.6 + 0.4 * fbm(uv * 36.0);',
+    '  vec3 base  = mix(vec3(0.30, 0.28, 0.28), vec3(0.52, 0.48, 0.44), ao);',
+    '  return base * (0.25 + diff * 0.75);',
+    '}',
+    '',
+    'void main(){',
+    '  vec2 uv = v_uv;',
+    '',
+    '  float hC = texture(u_state, uv).r;',
+    '  float hL = texture(u_state, uv - vec2(u_texel.x, 0.0)).r;',
+    '  float hR = texture(u_state, uv + vec2(u_texel.x, 0.0)).r;',
+    '  float hU = texture(u_state, uv + vec2(0.0, u_texel.y)).r;',
+    '  float hD = texture(u_state, uv - vec2(0.0, u_texel.y)).r;',
+    '',
+    '  float dx = hR - hL;',
+    '  float dy = hU - hD;',
+    '',
+    '  float bC = texture(u_boundary, uv).r;',
+    '  if (bC > 0.5) { fragColor = vec4(stoneColor(uv, dx, dy), 1.0); return; }',
+    '',
+    '  vec2 disp = clamp(vec2(dx, dy) * u_refractStrength, vec2(-0.04), vec2(0.04));',
+    '',
+    '  vec2 ambient = vec2(sin(uv.y * 24.0 + u_time * 0.4),',
+    '                      cos(uv.x * 24.0 + u_time * 0.3)) * u_staticWarpAmp;',
+    '',
+    '  vec2 totalDisp = disp + ambient;',
+    '',
+    '  vec2 baseTileUV = uv * u_tileScale;',
+    '',
+    '  vec2 oR = totalDisp * (1.0 + u_aberration * 2.0);',
+    '  vec2 oG = totalDisp * (1.0 + u_aberration);',
+    '  vec2 oB = totalDisp * (1.0 - u_aberration * 1.5);',
+    '  vec3 tileCol;',
+    '  tileCol.r = texture(u_floor, baseTileUV + oR).r;',
+    '  tileCol.g = texture(u_floor, baseTileUV + oG).g;',
+    '  tileCol.b = texture(u_floor, baseTileUV + oB).b;',
+    '',
+    '  float normalScale = u_refractStrength * 60.0;',
+    '  vec3 N = normalize(vec3(-dx * normalScale, 1.0, -dy * normalScale));',
+    '  vec3 V = vec3(0.0, 1.0, 0.0);',
+    '  vec3 H = normalize(u_lightDir + V);',
+    '  float spec = pow(max(dot(N, H), 0.0), 80.0);',
+    '',
+    '  float depthT = clamp(-hC * 1.4 + 0.5, 0.0, 1.0);',
+    '  vec3 shallowTint = vec3(0.55, 0.78, 0.88);',
+    '  vec3 deepTint    = vec3(0.02, 0.10, 0.20);',
+    '  vec3 waterTint   = mix(shallowTint, deepTint, depthT);',
+    '',
+    '  vec3 outCol = tileCol * waterTint + spec * vec3(1.0, 0.96, 0.88) * 0.85;',
+    '  outCol += vec3(0.0, 0.015, 0.030);',
+    '',
+    '  float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));',
+    '  float vign = smoothstep(0.0, 0.12, edge);',
+    '  outCol *= 0.72 + 0.28 * vign;',
+    '',
+    '  fragColor = vec4(outCol, 1.0);',
+    '}'
+  ].join('\n');
+
+  // TILE_FS — one-shot bake of the procedural tile floor.
+  var TILE_FS = [
+    '#version 300 es',
+    'precision highp float;',
+    '',
+    'uniform vec2  u_texSize;',
+    'uniform float u_tileScale;',
+    '',
+    'out vec4 fragColor;',
+    '',
+    'float hash21(vec2 p){',
+    '  p = fract(p * vec2(123.34, 456.21));',
+    '  p += dot(p, p + 45.32);',
+    '  return fract(p.x * p.y);',
+    '}',
+    'float vnoise(vec2 p){',
+    '  vec2 i = floor(p), f = fract(p);',
+    '  vec2 u = f * f * (3.0 - 2.0 * f);',
+    '  return mix(mix(hash21(i),                  hash21(i + vec2(1.0, 0.0)), u.x),',
+    '             mix(hash21(i + vec2(0.0,1.0)),  hash21(i + vec2(1.0, 1.0)), u.x),',
+    '             u.y);',
+    '}',
+    'float fbm(vec2 p){',
+    '  float v = 0.0, a = 0.5;',
+    '  for (int k = 0; k < 4; ++k){ v += a * vnoise(p); p *= 2.03; a *= 0.5; }',
+    '  return v;',
+    '}',
+    '',
+    'void main(){',
+    '  vec2 uv = gl_FragCoord.xy / u_texSize;',
+    '  vec2 sUV = uv * u_tileScale;',
+    '  vec2 cell = floor(sUV);',
+    '  vec2 local = fract(sUV);',
+    '',
+    '  float edge = min(min(local.x, 1.0 - local.x), min(local.y, 1.0 - local.y));',
+    '  float groutMask = 1.0 - smoothstep(0.0, 0.05, edge);',
+    '',
+    '  float rnd = hash21(cell + 7.13);',
+    '  vec3 warm = vec3(0.92, 0.78, 0.62);',
+    '  vec3 cool = vec3(0.52, 0.74, 0.93);',
+    '  vec3 base = mix(warm, cool, smoothstep(0.2, 0.8, rnd));',
+    '',
+    '  base *= 0.88 + 0.24 * fbm(cell * 0.7 + 11.0);',
+    '',
+    '  float bevel = smoothstep(0.0, 0.08, edge);',
+    '  base *= 0.85 + 0.30 * bevel;',
+    '',
+    '  vec3 groutColor = vec3(0.08, 0.10, 0.13) * (0.9 + 0.2 * fbm(cell * 4.0));',
+    '  vec3 color = mix(base, groutColor, groutMask);',
+    '',
+    '  color *= 1.0 - 0.04 * fbm(uv * 120.0);',
+    '',
+    '  fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);',
+    '}'
+  ].join('\n');
+
+  // ============================================================
+  // MODULE-LEVEL STATE
+  // ============================================================
+  var gl = null;
+  var extFloatLinear = null;
+  var extCBFloat = null;
+  var stateA = null, stateB = null, simFBO = null;
+  var boundaryTex = null;
+  var floorTex = null, floorFBO = null;
+  var progSim = null, progRender = null, progFloor = null;
+  var quadVAO = null;
+  var uLoc = { sim: {}, render: {}, floor: {} };
+
+  var damping = DAMPING_DEFAULT;
+  var staticWarpAmp = STATIC_WARP_DEFAULT;
+  if (TEST_MODE || PARAMS.get('warp') === '0') staticWarpAmp = 0.0;
+  var paused = false;
+  var pendingImpulses = [];
+  var lastFrame = performance.now();
+  var time = 0;
+  var frameCount = 0;
+  var fpsAcc = 0;
+  var resizePending = false;
+  var dragState = null;
+  var ready = false;
+
+  var impulseData = new Float32Array(MAX_IMPULSES * 4);
+  var texelVec = [1.0 / SIM_SIZE, 1.0 / SIM_SIZE];
+
+  // ============================================================
+  // GL HELPERS
+  // ============================================================
+  function compile(type, src) {
+    var sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      var info = gl.getShaderInfoLog(sh);
+      gl.deleteShader(sh);
+      throw new Error('Shader compile error: ' + info + '\n--- Source ---\n' + src);
+    }
+    return sh;
+  }
+
+  function link(vsSrc, fsSrc) {
+    var p = gl.createProgram();
+    var v = compile(gl.VERTEX_SHADER, vsSrc);
+    var f = compile(gl.FRAGMENT_SHADER, fsSrc);
+    gl.attachShader(p, v);
+    gl.attachShader(p, f);
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      var info = gl.getProgramInfoLog(p);
+      gl.deleteProgram(p);
+      throw new Error('Program link error: ' + info);
+    }
+    // Shaders can be deleted after linking; the program retains them.
+    gl.deleteShader(v);
+    gl.deleteShader(f);
+    return p;
+  }
+
+  function getUniforms(prog, names) {
+    var out = {};
+    for (var i = 0; i < names.length; ++i) {
+      var n = names[i];
+      var loc = gl.getUniformLocation(prog, n);
+      out[n] = loc; // may be null; WebGL silently no-ops
+    }
+    return out;
+  }
+
+  function makeFloatTex(w, h) {
+    var tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return tex;
+  }
+
+  function makeBoundaryTex(w, h) {
+    var tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return tex;
+  }
+
+  function makeFloorTex(w, h) {
+    var tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    return tex;
+  }
+
+  function makeFBOAttach(tex) {
+    var fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    var status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      var hex = '0x' + status.toString(16);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fbo);
+      throw new Error('Framebuffer incomplete: ' + hex);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return fbo;
+  }
+
+  function makeFullscreenTriangle() {
+    var vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    var buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    // Big triangle covering [-1,3] in NDC; clipped to viewport gives full quad.
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1,
+       3, -1,
+      -1,  3
+    ]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    return vao;
+  }
+
+  function clearFloatTex(tex, w, h) {
+    // Bind a fresh FBO each call; cheap and avoids stale attachment state.
+    var fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.viewport(0, 0, w, h);
+    gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(fbo);
+  }
+
+  // ============================================================
+  // BOUNDARY PAINT
+  // ============================================================
+  // 2D canvas (Y down) -> boundary texture with UNPACK_FLIP_Y_WEBGL.
+  // After upload, 2D y=0 maps to texture y=SIZE-1 (top in GL).
+  // We want the GL coordinate (uvX, uvY) to correspond to texture (uvX*SIZE, uvY*SIZE),
+  // so 2D y = (1.0 - uvY) * SIZE.
+  function paintBoundary() {
+    var cv = document.createElement('canvas');
+    cv.width = SIM_SIZE;
+    cv.height = SIM_SIZE;
+    var ctx = cv.getContext('2d');
+
+    // Solid black = no obstacle.
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, SIM_SIZE, SIM_SIZE);
+
+    function cx(uvx) { return Math.round(uvx * SIM_SIZE); }
+    function cy(uvy) { return Math.round((1.0 - uvy) * SIM_SIZE); }
+    function cs(u)   { return Math.max(1, Math.round(u * SIM_SIZE)); }
+
+    // White = obstacle. Only the R channel is sampled; A is for the alpha mask.
+    ctx.fillStyle = '#fff';
+
+    // 3 stones
+    var stones = [
+      { x: 0.30, y: 0.65, r: 0.060 },
+      { x: 0.72, y: 0.40, r: 0.045 },
+      { x: 0.50, y: 0.30, r: 0.075 }
+    ];
+    for (var i = 0; i < stones.length; ++i) {
+      var s = stones[i];
+      ctx.beginPath();
+      ctx.arc(cx(s.x), cy(s.y), cs(s.r), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Horizontal wall at uv y=0.15, thickness 0.012, with gap from x=0.55 to 0.62
+    var wallCY = 0.15;
+    var wallH  = 0.012;
+    var wallYTop2d = Math.round((1.0 - (wallCY + wallH * 0.5)) * SIM_SIZE);
+    var wallH2d    = Math.max(1, Math.round(wallH * SIM_SIZE));
+    // Left segment x: 0.10 .. 0.55
+    ctx.fillRect(cx(0.10), wallYTop2d, cx(0.55) - cx(0.10), wallH2d);
+    // Right segment x: 0.62 .. 0.92
+    ctx.fillRect(cx(0.62), wallYTop2d, cx(0.92) - cx(0.62), wallH2d);
+
+    // 1-texel border = canvas walls.
+    // 2D y=0    -> GL y=SIZE-1 (top wall)
+    // 2D y=SIZE-1 -> GL y=0 (bottom wall)
+    ctx.fillRect(0, 0, SIM_SIZE, 1);             // top in 2D => bottom in GL
+    ctx.fillRect(0, SIM_SIZE - 1, SIM_SIZE, 1); // bottom in 2D => top in GL
+    ctx.fillRect(0, 0, 1, SIM_SIZE);             // left
+    ctx.fillRect(SIM_SIZE - 1, 0, 1, SIM_SIZE); // right
+
+    // Upload
+    gl.bindTexture(gl.TEXTURE_2D, boundaryTex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  }
+
+  // ============================================================
+  // FLOOR BAKE
+  // ============================================================
+  function bakeFloor() {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, floorFBO);
+    gl.viewport(0, 0, FLOOR_TEX_SIZE, FLOOR_TEX_SIZE);
+    gl.useProgram(progFloor);
+    gl.uniform2f(uLoc.floor['u_texSize'], FLOOR_TEX_SIZE, FLOOR_TEX_SIZE);
+    gl.uniform1f(uLoc.floor['u_tileScale'], TILE_SCALE);
+    gl.bindVertexArray(quadVAO);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindVertexArray(null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  // ============================================================
+  // SIM PASS
+  // ============================================================
+  function simPass(impulses) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, simFBO);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, stateB, 0);
+    gl.viewport(0, 0, SIM_SIZE, SIM_SIZE);
+    gl.useProgram(progSim);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, stateA);
+    gl.uniform1i(uLoc.sim['u_state'], 0);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, boundaryTex);
+    gl.uniform1i(uLoc.sim['u_boundary'], 1);
+
+    gl.uniform2f(uLoc.sim['u_texel'], texelVec[0], texelVec[1]);
+    gl.uniform1f(uLoc.sim['u_damping'], damping);
+
+    // Pack impulses into flat Float32Array of vec4s.
+    var n = Math.min(impulses.length, MAX_IMPULSES);
+    for (var i = 0; i < n; ++i) {
+      var imp = impulses[i];
+      impulseData[i*4+0] = imp.x;
+      impulseData[i*4+1] = imp.y;
+      impulseData[i*4+2] = imp.amp;
+      impulseData[i*4+3] = imp.sigma;
+    }
+    // Zero the rest so stale values don't sneak in.
+    for (var j = n; j < MAX_IMPULSES; ++j) {
+      impulseData[j*4+0] = 0;
+      impulseData[j*4+1] = 0;
+      impulseData[j*4+2] = 0;
+      impulseData[j*4+3] = 1;
+    }
+    gl.uniform1i(uLoc.sim['u_impulseCount'], n);
+    if (uLoc.sim['u_impulses[0]']) {
+      gl.uniform4fv(uLoc.sim['u_impulses[0]'], impulseData);
+    }
+
+    gl.bindVertexArray(quadVAO);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindVertexArray(null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  // ============================================================
+  // RENDER PASS
+  // ============================================================
+  function renderPass() {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.useProgram(progRender);
+
+    // State texture: read with LINEAR for smooth gradient.
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, stateB);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.uniform1i(uLoc.render['u_state'], 0);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, boundaryTex);
+    gl.uniform1i(uLoc.render['u_boundary'], 1);
+
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, floorTex);
+    gl.uniform1i(uLoc.render['u_floor'], 2);
+
+    gl.uniform2f(uLoc.render['u_texel'], texelVec[0], texelVec[1]);
+    gl.uniform2f(uLoc.render['u_canvasSize'], canvas.width, canvas.height);
+    gl.uniform1f(uLoc.render['u_time'], time);
+    gl.uniform1f(uLoc.render['u_refractStrength'], REFRACT_STRENGTH);
+    gl.uniform1f(uLoc.render['u_aberration'], ABERRATION);
+    gl.uniform1f(uLoc.render['u_tileScale'], TILE_SCALE);
+    gl.uniform1f(uLoc.render['u_staticWarpAmp'], staticWarpAmp);
+    gl.uniform3f(uLoc.render['u_lightDir'], LIGHT_DIR[0], LIGHT_DIR[1], LIGHT_DIR[2]);
+
+    gl.bindVertexArray(quadVAO);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindVertexArray(null);
+  }
+
+  // ============================================================
+  // IMPULSE / RESET
+  // ============================================================
+  function pushImpulse(uvX, uvY, amp, sigma) {
+    if (pendingImpulses.length >= MAX_IMPULSES) {
+      pendingImpulses.shift();
+    }
+    pendingImpulses.push({
+      x: Math.max(0, Math.min(1, uvX)),
+      y: Math.max(0, Math.min(1, uvY)),
+      amp: amp,
+      sigma: sigma
+    });
+  }
+
+  function resetHeight() {
+    clearFloatTex(stateA, SIM_SIZE, SIM_SIZE);
+    clearFloatTex(stateB, SIM_SIZE, SIM_SIZE);
+    pendingImpulses.length = 0;
+  }
+
+  // ============================================================
+  // INPUT
+  // ============================================================
+  function uvFromClient(cx, cy) {
+    var rect = canvas.getBoundingClientRect();
+    var uvX = (cx - rect.left) / rect.width;
+    var uvY = 1.0 - (cy - rect.top) / rect.height;
+    return [uvX, uvY];
+  }
+
+  function onMouseDown(e) {
+    if (!ready) return;
+    var p = uvFromClient(e.clientX, e.clientY);
+    dragState = { uvX: p[0], uvY: p[1], sx: e.clientX, sy: e.clientY, maxDist: 0 };
+    pushImpulse(p[0], p[1], CLICK_AMP, CLICK_SIGMA);
+  }
+  function onMouseMove(e) {
+    if (!dragState) return;
+    var dx = e.clientX - dragState.sx;
+    var dy = e.clientY - dragState.sy;
+    var d = Math.sqrt(dx*dx + dy*dy);
+    if (d > dragState.maxDist) dragState.maxDist = d;
+  }
+  function onMouseUp(e) {
+    if (!dragState) return;
+    var scale = 1.0 + Math.min(dragState.maxDist / 150, DRAG_AMP_MAX);
+    if (dragState.maxDist > 4) {
+      var p = uvFromClient(e.clientX, e.clientY);
+      pushImpulse(p[0], p[1], CLICK_AMP * scale, CLICK_SIGMA * 1.25);
+    }
+    dragState = null;
+  }
+  function onMouseLeave() {
+    dragState = null;
+  }
+
+  function onTouchStart(e) {
+    if (!ready || !e.touches.length) return;
+    e.preventDefault();
+    var t = e.touches[0];
+    var p = uvFromClient(t.clientX, t.clientY);
+    dragState = { uvX: p[0], uvY: p[1], sx: t.clientX, sy: t.clientY, maxDist: 0 };
+    pushImpulse(p[0], p[1], CLICK_AMP, CLICK_SIGMA);
+  }
+  function onTouchMove(e) {
+    if (!dragState || !e.touches.length) return;
+    e.preventDefault();
+    var t = e.touches[0];
+    var dx = t.clientX - dragState.sx;
+    var dy = t.clientY - dragState.sy;
+    var d = Math.sqrt(dx*dx + dy*dy);
+    if (d > dragState.maxDist) dragState.maxDist = d;
+  }
+  function onTouchEnd(e) {
+    if (!dragState) return;
+    e.preventDefault();
+    var scale = 1.0 + Math.min(dragState.maxDist / 150, DRAG_AMP_MAX);
+    if (dragState.maxDist > 4 && e.changedTouches.length) {
+      var t = e.changedTouches[0];
+      var p = uvFromClient(t.clientX, t.clientY);
+      pushImpulse(p[0], p[1], CLICK_AMP * scale, CLICK_SIGMA * 1.25);
+    }
+    dragState = null;
+  }
+
+  // ============================================================
+  // UI
+  // ============================================================
+  function updateDampingLabel() {
+    dampingValEl.textContent = damping.toFixed(3);
+  }
+
+  function setDamping(v) {
+    damping = Math.max(DAMPING_MIN, Math.min(DAMPING_MAX, v));
+    dampingInput.value = damping.toFixed(3);
+    updateDampingLabel();
+  }
+
+  function setPaused(v) {
+    paused = !!v;
+    pauseBtn.classList.toggle('active', paused);
+    pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+  }
+
+  function attachUI() {
+    dampingInput.addEventListener('input', function() {
+      setDamping(parseFloat(dampingInput.value));
+    });
+    updateDampingLabel();
+
+    pauseBtn.addEventListener('click', function() { setPaused(!paused); });
+    setPaused(false);
+
+    resetBtn.addEventListener('click', function() { resetHeight(); });
+  }
+
+  // ============================================================
+  // RESIZE
+  // ============================================================
+  function applyResize() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var w = Math.max(1, Math.floor(window.innerWidth  * dpr));
+    var h = Math.max(1, Math.floor(window.innerHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+  }
+
+  function onResize() {
+    if (resizePending) return;
+    resizePending = true;
+    requestAnimationFrame(function() {
+      resizePending = false;
+      applyResize();
+    });
+  }
+
+  // ============================================================
+  // RAF LOOP
+  // ============================================================
+  function tick(now) {
+    var dt = (now - lastFrame) * 0.001;
+    if (dt > 0.1) dt = 0.1; // clamp huge gaps (tab restore)
+    lastFrame = now;
+    time += dt;
+
+    // 1. Drain pending impulses.
+    var impulses = pendingImpulses.splice(0, MAX_IMPULSES);
+
+    // 2. Sim step (stateA -> stateB). Skip when paused.
+    if (!paused) {
+      simPass(impulses);
+    }
+
+    // 3. Render the most recent state (currently stateB) to the canvas.
+    renderPass();
+
+    // 4. Swap so next frame's read of stateA sees this frame's write.
+    if (!paused) {
+      var tmp = stateA; stateA = stateB; stateB = tmp;
+    }
+
+    // 5. FPS readout (~2 Hz update).
+    frameCount++;
+    fpsAcc += dt;
+    if (fpsAcc >= 0.5) {
+      fpsEl.textContent = String(Math.round(frameCount / fpsAcc));
+      frameCount = 0;
+      fpsAcc = 0;
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  // ============================================================
+  // INIT
+  // ============================================================
+  function init() {
+    gl = canvas.getContext('webgl2', {
+      antialias: false,
+      alpha: false,
+      depth: false,
+      stencil: false,
+      preserveDrawingBuffer: false,
+      powerPreference: 'high-performance'
+    });
+
+    if (!gl) {
+      fallbackEl.classList.add('visible');
+      return;
+    }
+
+    extFloatLinear = gl.getExtension('OES_texture_float_linear');
+    extCBFloat     = gl.getExtension('EXT_color_buffer_float');
+
+    if (!extCBFloat) {
+      console.warn('EXT_color_buffer_float not available; RGBA32F renderability may fail.');
+    }
+    if (!extFloatLinear) {
+      console.warn('OES_texture_float_linear not available; float texture filtering falls back to NEAREST.');
+    }
+
+    // Build programs
+    progSim    = link(FULLSCREEN_VS, SIM_FS);
+    progRender = link(FULLSCREEN_VS, RENDER_FS);
+    progFloor  = link(FULLSCREEN_VS, TILE_FS);
+
+    uLoc.sim = getUniforms(progSim, [
+      'u_state', 'u_boundary', 'u_texel', 'u_damping',
+      'u_impulseCount', 'u_impulses[0]'
+    ]);
+    uLoc.render = getUniforms(progRender, [
+      'u_state', 'u_boundary', 'u_floor',
+      'u_texel', 'u_canvasSize', 'u_time',
+      'u_refractStrength', 'u_aberration', 'u_tileScale',
+      'u_staticWarpAmp', 'u_lightDir'
+    ]);
+    uLoc.floor = getUniforms(progFloor, [
+      'u_texSize', 'u_tileScale'
+    ]);
+
+    // Build textures
+    stateA = makeFloatTex(SIM_SIZE, SIM_SIZE);
+    stateB = makeFloatTex(SIM_SIZE, SIM_SIZE);
+    boundaryTex = makeBoundaryTex(SIM_SIZE, SIM_SIZE);
+    floorTex = makeFloorTex(FLOOR_TEX_SIZE, FLOOR_TEX_SIZE);
+
+    // FBOs
+    simFBO = makeFBOAttach(stateB);
+    floorFBO = makeFBOAttach(floorTex);
+
+    // Fullscreen VAO
+    quadVAO = makeFullscreenTriangle();
+
+    // Initial canvas size
+    applyResize();
+
+    // Paint boundary + bake floor
+    paintBoundary();
+    bakeFloor();
+
+    // Wire UI + input
+    attachUI();
+
+    canvas.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup',   onMouseUp);
+    canvas.addEventListener('mouseleave', onMouseLeave);
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
+    canvas.addEventListener('touchend',   onTouchEnd,   { passive: false });
+    canvas.addEventListener('touchcancel',onTouchEnd,   { passive: false });
+    window.addEventListener('resize',     onResize);
+    window.addEventListener('orientationchange', onResize);
+
+    canvas.addEventListener('webglcontextlost', function(e) {
+      e.preventDefault();
+      console.warn('WebGL context lost.');
+    }, false);
+
+    // Expose programmatic hooks
+    window.__ripple_click = function(uvX, uvY) {
+      pushImpulse(uvX, uvY, CLICK_AMP, CLICK_SIGMA);
+    };
+    window.__ripple_reset = function() {
+      resetHeight();
+    };
+    window.__ripple_damping = function(v) {
+      setDamping(v);
+    };
+    window.__ripple_pause = function(v) {
+      setPaused(v);
+    };
+    window.__ripple_state = function() {
+      return {
+        simSize: SIM_SIZE,
+        damping: damping,
+        paused: paused,
+        pendingImpulses: pendingImpulses.length,
+        time: time,
+        testMode: TEST_MODE
+      };
+    };
+
+    ready = true;
+    window.__RIPPLE_READY = true;
+
+    requestAnimationFrame(tick);
+  }
+
+  // ============================================================
+  // BOOT
+  // ============================================================
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>
