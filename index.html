@@ -160,6 +160,24 @@
     margin-top: 4px;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
   }
+  #ui .seed-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-top: -4px;
+  }
+  #ui .seed-label {
+    font-size: 10px;
+    color: var(--ui-text-dim);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+  }
+  #ui .seed-val {
+    color: var(--ui-text);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    font-size: 12px;
+  }
   #ui .stat {
     font-size: 10px;
     color: var(--ui-text-dim);
@@ -227,6 +245,11 @@
   <div class="row buttons">
     <button id="pause" type="button">Pause</button>
     <button id="reset" type="button">Reset</button>
+    <button id="randomize" type="button" title="Re-roll terrain" aria-label="Re-roll terrain">&#x2680;</button>
+  </div>
+  <div class="row seed-row">
+    <span class="seed-label">Seed</span>
+    <span class="seed-val" id="seedVal">&mdash;</span>
   </div>
   <div class="stats">
     <div class="stat">FPS<div class="stat-val" id="fps">0</div></div>
@@ -260,8 +283,7 @@
   // Visual constants
   var REFRACT_STRENGTH = 0.045;
   var ABERRATION = 0.0025;
-  var TILE_SCALE = 14.0;
-  var STATIC_WARP_DEFAULT = TEST_MODE ? 0.0 : 0.0015;
+  var STATIC_WARP_DEFAULT = TEST_MODE ? 0.0 : 0.0008;
   var LIGHT_DIR = [0.30, 0.85, 0.40]; // pre-normalized in JS
   (function() {
     var l = Math.hypot(LIGHT_DIR[0], LIGHT_DIR[1], LIGHT_DIR[2]);
@@ -281,6 +303,8 @@
   var dampingValEl = document.getElementById('dampingVal');
   var pauseBtn = document.getElementById('pause');
   var resetBtn = document.getElementById('reset');
+  var randomizeBtn = document.getElementById('randomize');
+  var seedValEl = document.getElementById('seedVal');
   var fpsEl = document.getElementById('fps');
   var simResEl = document.getElementById('simRes');
   simResEl.textContent = String(SIM_SIZE);
@@ -365,7 +389,7 @@
     '}'
   ].join('\n');
 
-  // RENDER_FS — gradient → refraction → chromatic aberration → spec → tint → vignette.
+  // RENDER_FS — gradient → refraction → chromatic aberration → spec → tint → caustic → vignette.
   var RENDER_FS = [
     '#version 300 es',
     'precision highp float;',
@@ -379,8 +403,8 @@
     'uniform float u_time;',
     'uniform float u_refractStrength;',
     'uniform float u_aberration;',
-    'uniform float u_tileScale;',
     'uniform float u_staticWarpAmp;',
+    'uniform float u_seed;',
     'uniform vec3  u_lightDir;',
     '',
     'in  vec2 v_uv;',
@@ -409,7 +433,10 @@
     '  vec3 L = u_lightDir;',
     '  float diff = clamp(dot(N, L), 0.0, 1.0);',
     '  float ao   = 0.6 + 0.4 * fbm(uv * 36.0);',
-    '  vec3 base  = mix(vec3(0.30, 0.28, 0.28), vec3(0.52, 0.48, 0.44), ao);',
+    '  // Per-region warm-gray to cool-gray drift so each stone feels unique.',
+    '  float region = hash21(floor(uv * 14.0) + 31.7);',
+    '  vec3 baseTint = mix(vec3(0.28, 0.26, 0.27), vec3(0.55, 0.50, 0.44), region);',
+    '  vec3 base = mix(baseTint * 0.8, baseTint * 1.1, ao);',
     '  return base * (0.25 + diff * 0.75);',
     '}',
     '',
@@ -435,7 +462,8 @@
     '',
     '  vec2 totalDisp = disp + ambient;',
     '',
-    '  vec2 baseTileUV = uv * u_tileScale;',
+    '  // floorTex IS the world (the bake covers the whole pond), no per-tile zoom.',
+    '  vec2 baseTileUV = uv;',
     '',
     '  vec2 oR = totalDisp * (1.0 + u_aberration * 2.0);',
     '  vec2 oG = totalDisp * (1.0 + u_aberration);',
@@ -456,7 +484,16 @@
     '  vec3 deepTint    = vec3(0.02, 0.10, 0.20);',
     '  vec3 waterTint   = mix(shallowTint, deepTint, depthT);',
     '',
+    '  // Animated caustic light patches. Two drifting FBM fields, the inverted',
+    '  // distance between them gives the characteristic bright veins of light',
+    '  // refracted through a rippling water surface.',
+    '  vec2 cuv = uv * 6.0 + vec2(u_time * 0.07, u_time * 0.05) + u_seed * 13.0;',
+    '  float c1 = fbm(cuv);',
+    '  float c2 = fbm(cuv * 1.7 + 5.2 - vec2(u_time * 0.04, u_time * 0.06));',
+    '  float caustic = pow(1.0 - abs(c1 - c2) * 1.8, 4.0) * 0.35;',
+    '',
     '  vec3 outCol = tileCol * waterTint + spec * vec3(1.0, 0.96, 0.88) * 0.85;',
+    '  outCol += caustic * (0.4 + 0.6 * depthT) * waterTint;',
     '  outCol += vec3(0.0, 0.015, 0.030);',
     '',
     '  float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));',
@@ -467,13 +504,15 @@
     '}'
   ].join('\n');
 
-  // TILE_FS — one-shot bake of the procedural tile floor.
+  // TILE_FS — one-shot bake of the procedural pond floor.
+  // Sandy bottom (FBM + ridge ripples) + Voronoi pebbles + sparser Voronoi rocks
+  // + fine grain. u_seed shifts the world so each terrain feels unique.
   var TILE_FS = [
     '#version 300 es',
     'precision highp float;',
     '',
     'uniform vec2  u_texSize;',
-    'uniform float u_tileScale;',
+    'uniform float u_seed;',
     '',
     'out vec4 fragColor;',
     '',
@@ -481,6 +520,10 @@
     '  p = fract(p * vec2(123.34, 456.21));',
     '  p += dot(p, p + 45.32);',
     '  return fract(p.x * p.y);',
+    '}',
+    'vec2 hash22(vec2 p){',
+    '  p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));',
+    '  return fract(sin(p) * 43758.5453);',
     '}',
     'float vnoise(vec2 p){',
     '  vec2 i = floor(p), f = fract(p);',
@@ -491,33 +534,99 @@
     '}',
     'float fbm(vec2 p){',
     '  float v = 0.0, a = 0.5;',
-    '  for (int k = 0; k < 4; ++k){ v += a * vnoise(p); p *= 2.03; a *= 0.5; }',
+    '  for (int k = 0; k < 5; ++k){ v += a * vnoise(p); p *= 2.03; a *= 0.5; }',
     '  return v;',
+    '}',
+    '// F1 (nearest-site) distance via 3x3 cell scan.',
+    'float voroF1(vec2 p){',
+    '  vec2 i = floor(p);',
+    '  vec2 f = fract(p);',
+    '  float minD = 1.0;',
+    '  for (int y = -1; y <= 1; ++y){',
+    '    for (int x = -1; x <= 1; ++x){',
+    '      vec2 g = vec2(float(x), float(y));',
+    '      vec2 site = hash22(i + g);',
+    '      vec2 r = g + site - f;',
+    '      minD = min(minD, dot(r, r));',
+    '    }',
+    '  }',
+    '  return sqrt(minD);',
+    '}',
+    '// World-space coordinate of the nearest Voronoi site.',
+    'vec2 voroF1Site(vec2 p){',
+    '  vec2 i = floor(p);',
+    '  vec2 f = fract(p);',
+    '  float minD = 1.0;',
+    '  vec2 minSite = vec2(0.0);',
+    '  for (int y = -1; y <= 1; ++y){',
+    '    for (int x = -1; x <= 1; ++x){',
+    '      vec2 g = vec2(float(x), float(y));',
+    '      vec2 site = hash22(i + g);',
+    '      vec2 r = g + site - f;',
+    '      float d = dot(r, r);',
+    '      if (d < minD){ minD = d; minSite = i + g + site; }',
+    '    }',
+    '  }',
+    '  return minSite;',
     '}',
     '',
     'void main(){',
     '  vec2 uv = gl_FragCoord.xy / u_texSize;',
-    '  vec2 sUV = uv * u_tileScale;',
-    '  vec2 cell = floor(sUV);',
-    '  vec2 local = fract(sUV);',
+    '  vec2 s = vec2(u_seed * 11.3, u_seed * 7.7);',
     '',
-    '  float edge = min(min(local.x, 1.0 - local.x), min(local.y, 1.0 - local.y));',
-    '  float groutMask = 1.0 - smoothstep(0.0, 0.05, edge);',
+    '  // --- Sand base: warm tan with low-freq FBM variation ---',
+    '  vec3 sandDark  = vec3(0.46, 0.38, 0.27);',
+    '  vec3 sandLight = vec3(0.80, 0.68, 0.46);',
+    '  float sandMacro = fbm(uv * 3.5 + s);',
+    '  vec3 sand = mix(sandDark, sandLight, smoothstep(0.20, 0.85, sandMacro));',
     '',
-    '  float rnd = hash21(cell + 7.13);',
-    '  vec3 warm = vec3(0.92, 0.78, 0.62);',
-    '  vec3 cool = vec3(0.52, 0.74, 0.93);',
-    '  vec3 base = mix(warm, cool, smoothstep(0.2, 0.8, rnd));',
+    '  // --- Ridge ripples: layered ridged noise gives wave-like sand patterns ---',
+    '  float ridges = 0.0;',
+    '  vec2 ruv = uv * 22.0 + s * 1.7;',
+    '  for (int k = 0; k < 3; ++k){',
+    '    float r = vnoise(ruv);',
+    '    r = 1.0 - abs(2.0 * r - 1.0);',
+    '    r = r * r;',
+    '    ridges += r * 0.34;',
+    '    ruv *= 1.9;',
+    '  }',
+    '  ridges = clamp(ridges, 0.0, 1.0);',
+    '  sand *= 0.86 + 0.20 * ridges;',
     '',
-    '  base *= 0.88 + 0.24 * fbm(cell * 0.7 + 11.0);',
+    '  // Medium grain across the sand',
+    '  sand *= 0.92 + 0.14 * fbm(uv * 80.0 + s * 0.3);',
     '',
-    '  float bevel = smoothstep(0.0, 0.08, edge);',
-    '  base *= 0.85 + 0.30 * bevel;',
+    '  vec3 color = sand;',
     '',
-    '  vec3 groutColor = vec3(0.08, 0.10, 0.13) * (0.9 + 0.2 * fbm(cell * 4.0));',
-    '  vec3 color = mix(base, groutColor, groutMask);',
+    '  // --- Pebbles: dense Voronoi at scale 26, only where site seed crosses threshold ---',
+    '  vec2 puv = uv * 26.0 + s * 2.1;',
+    '  float pd = voroF1(puv);',
+    '  vec2 pSite = voroF1Site(puv);',
+    '  float pSeed = hash21(pSite + 13.7);',
+    '  float pebbleRing = smoothstep(0.18, 0.02, pd);',
+    '  float pebbleFill = smoothstep(0.16, 0.04, pd);',
+    '  float pebbleMask = pebbleFill * step(0.55, pSeed);',
+    '  vec3 pebbleHi = mix(vec3(0.42, 0.38, 0.32), vec3(0.62, 0.56, 0.46), pSeed);',
+    '  vec3 pebbleShade = pebbleHi * (0.55 + 0.50 * pebbleRing);',
+    '  color = mix(color, pebbleShade, pebbleMask * 0.88);',
     '',
-    '  color *= 1.0 - 0.04 * fbm(uv * 120.0);',
+    '  // --- Rocks: sparser larger Voronoi at scale 7, fewer sites ---',
+    '  vec2 ruv2 = uv * 7.0 + s * 3.7;',
+    '  float rd = voroF1(ruv2);',
+    '  vec2 rSite = voroF1Site(ruv2);',
+    '  float rSeed = hash21(rSite + 31.1);',
+    '  float rockFill = smoothstep(0.30, 0.06, rd);',
+    '  float rockRing = smoothstep(0.32, 0.10, rd) - rockFill;',
+    '  float rockMask = rockFill * step(0.70, rSeed);',
+    '  vec3 rockDark = vec3(0.18, 0.17, 0.16);',
+    '  vec3 rockHi   = vec3(0.42, 0.38, 0.32);',
+    '  vec3 rockCol  = mix(rockDark, rockHi, rSeed);',
+    '  rockCol *= (0.55 + 0.55 * rockRing);',
+    '  color = mix(color, rockCol, rockMask * 0.95);',
+    '',
+    '  // --- Fine grain + low-amplitude global wash ---',
+    '  color *= 0.96 + 0.08 * vnoise(uv * 360.0);',
+    '  color *= 0.94 + 0.10 * fbm(uv * 6.0 + s * 0.5);',
     '',
     '  fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);',
     '}'
@@ -548,6 +657,12 @@
   var resizePending = false;
   var dragState = null;
   var ready = false;
+
+  // Seeded random terrain. OBSTACLES is rebuilt on every seed change;
+  // currentSeed is the canonical uint32 driving both the JS layout and the GLSL
+  // floor-bake / caustic uniforms.
+  var OBSTACLES = [];
+  var currentSeed = 0;
 
   var impulseData = new Float32Array(MAX_IMPULSES * 4);
   var texelVec = [1.0 / SIM_SIZE, 1.0 / SIM_SIZE];
@@ -672,6 +787,156 @@
   }
 
   // ============================================================
+  // OBSTACLE GENERATION (seeded, deterministic)
+  // ============================================================
+  // mulberry32 — 32-bit PRNG; same seed always returns the same
+  // stream, so ?seed=N always paints the same terrain.
+  function mulberry32(seed) {
+    var a = seed >>> 0;
+    return function() {
+      a = (a + 0x6D2B79F5) | 0;
+      var t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // FNV-1a string→uint32 hash so ?seed=hello is shareable as a permalink.
+  function hashSeed(str) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < str.length; ++i) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+  }
+
+  // Pure function: returns a fresh OBSTACLES list for a given uint32 seed.
+  // 5–9 obstacles of mixed types (circle 50% / ellipse 25% / polygon 25%) +
+  // ~30% chance of one thin wall, with a 30% chance of a gap.
+  function generateObstacles(seed) {
+    var rng = mulberry32(seed);
+    var obs = [];
+
+    var count = 5 + Math.floor(rng() * 5); // 5..9
+    var withWall = rng() < 0.30;
+
+    function rand(min, max) { return min + rng() * (max - min); }
+
+    // Bounding-circle radius for collision: a generous overestimate so
+    // stones don't visually overlap each other after jitter.
+    function bRadius(o) {
+      if (o.type === 'circle')  return o.r;
+      if (o.type === 'ellipse') return Math.max(o.rx, o.ry);
+      return o.r * 1.3; // polygon: r × upper bound of radial jitter
+    }
+
+    function placeOK(o) {
+      var br = bRadius(o);
+      for (var i = 0; i < obs.length; ++i) {
+        var other = obs[i];
+        var dx = o.x - other.x, dy = o.y - other.y;
+        var minD = br + bRadius(other) + 0.015;
+        if (dx * dx + dy * dy < minD * minD) return false;
+      }
+      return true;
+    }
+
+    for (var i = 0; i < count; ++i) {
+      var pick = rng();
+      var type = pick < 0.50 ? 'circle' : (pick < 0.75 ? 'ellipse' : 'polygon');
+
+      var lastCandidate = null;
+      var placed = null;
+      for (var attempt = 0; attempt < 30; ++attempt) {
+        var x = rand(0.07, 0.93);
+        var y = rand(0.07, 0.93);
+        var o;
+        if (type === 'circle') {
+          o = { type: 'circle', x: x, y: y, r: rand(0.025, 0.075) };
+        } else if (type === 'ellipse') {
+          o = {
+            type: 'ellipse', x: x, y: y,
+            rx: rand(0.035, 0.090),
+            ry: rand(0.020, 0.060),
+            rot: rng() * Math.PI * 2
+          };
+        } else {
+          var verts = 4 + Math.floor(rng() * 4); // 4..7
+          var baseR = rand(0.030, 0.080);
+          var angArr = [];
+          var jitArr = [];
+          for (var v = 0; v < verts; ++v) {
+            angArr.push((v / verts) * Math.PI * 2 + rand(-0.18, 0.18));
+            jitArr.push(rand(0.72, 1.28));
+          }
+          o = { type: 'polygon', x: x, y: y, r: baseR, verts: angArr, jit: jitArr };
+        }
+        lastCandidate = o;
+        if (placeOK(o)) { obs.push(o); placed = o; break; }
+      }
+      // Never infinite-loop: accept the last attempt if nothing fit.
+      if (!placed && lastCandidate) obs.push(lastCandidate);
+    }
+
+    if (withWall) {
+      var horiz = rng() < 0.5;
+      var hasGap = rng() < 0.30;
+      var length = rand(0.55, 0.78);
+      var thick  = rand(0.011, 0.018);
+      var segments = [];
+
+      if (horiz) {
+        var wallY = rand(0.22, 0.78);
+        var xStart = (1 - length) / 2;
+        var xEnd   = 1 - xStart;
+        if (hasGap) {
+          var gC = rand(xStart + length * 0.30, xStart + length * 0.70);
+          var gH = rand(0.020, 0.050);
+          var leftEnd    = Math.max(xStart + 0.02, gC - gH);
+          var rightStart = Math.min(xEnd   - 0.02, gC + gH);
+          if (leftEnd > xStart) {
+            segments.push({ x: xStart, y: wallY - thick / 2, w: leftEnd - xStart, h: thick });
+          }
+          if (rightStart < xEnd) {
+            segments.push({ x: rightStart, y: wallY - thick / 2, w: xEnd - rightStart, h: thick });
+          }
+          if (segments.length === 0) {
+            segments.push({ x: xStart, y: wallY - thick / 2, w: length, h: thick });
+          }
+        } else {
+          segments.push({ x: xStart, y: wallY - thick / 2, w: length, h: thick });
+        }
+      } else {
+        var wallX = rand(0.22, 0.78);
+        var yStart = (1 - length) / 2;
+        var yEnd   = 1 - yStart;
+        if (hasGap) {
+          var gC2 = rand(yStart + length * 0.30, yStart + length * 0.70);
+          var gH2 = rand(0.020, 0.050);
+          var topEnd   = Math.max(yStart + 0.02, gC2 - gH2);
+          var botStart = Math.min(yEnd   - 0.02, gC2 + gH2);
+          if (topEnd > yStart) {
+            segments.push({ x: wallX - thick / 2, y: yStart, w: thick, h: topEnd - yStart });
+          }
+          if (botStart < yEnd) {
+            segments.push({ x: wallX - thick / 2, y: botStart, w: thick, h: yEnd - botStart });
+          }
+          if (segments.length === 0) {
+            segments.push({ x: wallX - thick / 2, y: yStart, w: thick, h: length });
+          }
+        } else {
+          segments.push({ x: wallX - thick / 2, y: yStart, w: thick, h: length });
+        }
+      }
+      obs.push({ type: 'wall', orientation: horiz ? 'h' : 'v', segments: segments });
+    }
+
+    return obs;
+  }
+
+  // ============================================================
   // BOUNDARY PAINT
   // ============================================================
   // 2D canvas (Y down) -> boundary texture with UNPACK_FLIP_Y_WEBGL.
@@ -695,32 +960,46 @@
     // White = obstacle. Only the R channel is sampled; A is for the alpha mask.
     ctx.fillStyle = '#fff';
 
-    // 3 stones
-    var stones = [
-      { x: 0.30, y: 0.65, r: 0.060 },
-      { x: 0.72, y: 0.40, r: 0.045 },
-      { x: 0.50, y: 0.30, r: 0.075 }
-    ];
-    for (var i = 0; i < stones.length; ++i) {
-      var s = stones[i];
-      ctx.beginPath();
-      ctx.arc(cx(s.x), cy(s.y), cs(s.r), 0, Math.PI * 2);
-      ctx.fill();
+    for (var i = 0; i < OBSTACLES.length; ++i) {
+      var o = OBSTACLES[i];
+      if (o.type === 'circle') {
+        ctx.beginPath();
+        ctx.arc(cx(o.x), cy(o.y), cs(o.r), 0, Math.PI * 2);
+        ctx.fill();
+      } else if (o.type === 'ellipse') {
+        ctx.beginPath();
+        ctx.ellipse(cx(o.x), cy(o.y), cs(o.rx), cs(o.ry), o.rot, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (o.type === 'polygon') {
+        // Polygon vertices: angle (rad, math convention) × jit (radial scale) on a
+        // base radius. World-space +y is up, so we just convert each vertex through
+        // cx()/cy() and let UNPACK_FLIP_Y_WEBGL do the world flip.
+        ctx.beginPath();
+        for (var v = 0; v < o.verts.length; ++v) {
+          var ang = o.verts[v];
+          var jit = o.jit[v];
+          var pr  = o.r * jit;
+          var px  = o.x + Math.cos(ang) * pr;
+          var py  = o.y + Math.sin(ang) * pr;
+          if (v === 0) ctx.moveTo(cx(px), cy(py));
+          else         ctx.lineTo(cx(px), cy(py));
+        }
+        ctx.closePath();
+        ctx.fill();
+      } else if (o.type === 'wall') {
+        // Each segment is an axis-aligned UV rect (x, y, w, h) where (x, y) is the
+        // top-left corner in UV space. cy(y + h) maps the UV top-edge to image
+        // space (image y goes DOWN, so higher UV y → smaller image y after flip).
+        for (var s = 0; s < o.segments.length; ++s) {
+          var seg = o.segments[s];
+          ctx.fillRect(cx(seg.x), cy(seg.y + seg.h), cs(seg.w), cs(seg.h));
+        }
+      }
     }
 
-    // Horizontal wall at uv y=0.15, thickness 0.012, with gap from x=0.55 to 0.62
-    var wallCY = 0.15;
-    var wallH  = 0.012;
-    var wallYTop2d = Math.round((1.0 - (wallCY + wallH * 0.5)) * SIM_SIZE);
-    var wallH2d    = Math.max(1, Math.round(wallH * SIM_SIZE));
-    // Left segment x: 0.10 .. 0.55
-    ctx.fillRect(cx(0.10), wallYTop2d, cx(0.55) - cx(0.10), wallH2d);
-    // Right segment x: 0.62 .. 0.92
-    ctx.fillRect(cx(0.62), wallYTop2d, cx(0.92) - cx(0.62), wallH2d);
-
     // 1-texel border = canvas walls.
-    // 2D y=0    -> GL y=SIZE-1 (top wall)
-    // 2D y=SIZE-1 -> GL y=0 (bottom wall)
+    // 2D y=0    -> GL y=SIZE-1 (top wall in GL)
+    // 2D y=SIZE-1 -> GL y=0 (bottom wall in GL)
     ctx.fillRect(0, 0, SIM_SIZE, 1);             // top in 2D => bottom in GL
     ctx.fillRect(0, SIM_SIZE - 1, SIM_SIZE, 1); // bottom in 2D => top in GL
     ctx.fillRect(0, 0, 1, SIM_SIZE);             // left
@@ -735,6 +1014,30 @@
   }
 
   // ============================================================
+  // APPLY SEED
+  // ============================================================
+  // Bind a seed: rebuild OBSTACLES, repaint the boundary texture,
+  // reset the wave height, push the new u_seed to the floor program,
+  // re-bake the pond floor so pebbles/rocks shift with the layout,
+  // and update the URL + on-screen readout.
+  function applySeed(seed) {
+    var s = seed >>> 0;
+    OBSTACLES = generateObstacles(s);
+    paintBoundary();
+    resetHeight();
+    if (uLoc.floor && uLoc.floor['u_seed']) {
+      gl.uniform1f(uLoc.floor['u_seed'], s / 0xFFFFFFFF);
+    }
+    bakeFloor();
+    currentSeed = s;
+    if (seedValEl) seedValEl.textContent = String(s);
+    var newUrl = '?seed=' + s + (TEST_MODE ? '&test=1' : '');
+    if (window.history && history.replaceState) {
+      try { history.replaceState(null, '', newUrl); } catch (_) { /* file:// can throw */ }
+    }
+  }
+
+  // ============================================================
   // FLOOR BAKE
   // ============================================================
   function bakeFloor() {
@@ -742,7 +1045,7 @@
     gl.viewport(0, 0, FLOOR_TEX_SIZE, FLOOR_TEX_SIZE);
     gl.useProgram(progFloor);
     gl.uniform2f(uLoc.floor['u_texSize'], FLOOR_TEX_SIZE, FLOOR_TEX_SIZE);
-    gl.uniform1f(uLoc.floor['u_tileScale'], TILE_SCALE);
+    gl.uniform1f(uLoc.floor['u_seed'], currentSeed / 0xFFFFFFFF);
     gl.bindVertexArray(quadVAO);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
@@ -824,8 +1127,8 @@
     gl.uniform1f(uLoc.render['u_time'], time);
     gl.uniform1f(uLoc.render['u_refractStrength'], REFRACT_STRENGTH);
     gl.uniform1f(uLoc.render['u_aberration'], ABERRATION);
-    gl.uniform1f(uLoc.render['u_tileScale'], TILE_SCALE);
     gl.uniform1f(uLoc.render['u_staticWarpAmp'], staticWarpAmp);
+    gl.uniform1f(uLoc.render['u_seed'], currentSeed / 0xFFFFFFFF);
     gl.uniform3f(uLoc.render['u_lightDir'], LIGHT_DIR[0], LIGHT_DIR[1], LIGHT_DIR[2]);
 
     gl.bindVertexArray(quadVAO);
@@ -948,6 +1251,12 @@
     setPaused(false);
 
     resetBtn.addEventListener('click', function() { resetHeight(); });
+
+    if (randomizeBtn) {
+      randomizeBtn.addEventListener('click', function() {
+        window.__ripple_randomize();
+      });
+    }
   }
 
   // ============================================================
@@ -1049,11 +1358,11 @@
     uLoc.render = getUniforms(progRender, [
       'u_state', 'u_boundary', 'u_floor',
       'u_texel', 'u_canvasSize', 'u_time',
-      'u_refractStrength', 'u_aberration', 'u_tileScale',
-      'u_staticWarpAmp', 'u_lightDir'
+      'u_refractStrength', 'u_aberration',
+      'u_staticWarpAmp', 'u_seed', 'u_lightDir'
     ]);
     uLoc.floor = getUniforms(progFloor, [
-      'u_texSize', 'u_tileScale'
+      'u_texSize', 'u_seed'
     ]);
 
     // Build textures
@@ -1072,9 +1381,75 @@
     // Initial canvas size
     applyResize();
 
-    // Paint boundary + bake floor
-    paintBoundary();
-    bakeFloor();
+    // Resolve initial seed (URL > test override > random).
+    var seedRaw = PARAMS.get('seed');
+    var initSeed;
+    if (seedRaw !== null) {
+      initSeed = /^\d+$/.test(seedRaw)
+        ? parseInt(seedRaw, 10)
+        : (hashSeed(seedRaw) >>> 0);
+    } else if (TEST_MODE) {
+      initSeed = 0;
+    } else {
+      initSeed = (Date.now() ^ (Math.random() * 0xFFFFFFFF)) >>> 0;
+    }
+    applySeed(initSeed);
+
+    // Inline smoke tests under ?test=1 — no output in normal mode.
+    if (TEST_MODE) {
+      var tPass = 0, tFail = 0;
+      function _check(name, cond) {
+        if (cond) { console.log('[test] PASS: ' + name); tPass++; }
+        else      { console.warn('[test] FAIL: ' + name); tFail++; }
+      }
+      // Same seed must always produce the exact same OBSTACLES list.
+      var _o1 = generateObstacles(42);
+      var _o2 = generateObstacles(42);
+      _check('generateObstacles(42) deterministic (deep equal)',
+             JSON.stringify(_o1) === JSON.stringify(_o2));
+
+      // 5..9 stones + 0..1 walls = 5..10 obstacles.
+      _check('seed=42 obstacleCount in [5,10]',
+             OBSTACLES.length >= 5 && OBSTACLES.length <= 10);
+
+      // For 10 different seeds, every stone center sits at least 0.05 from any
+      // canvas edge (we explicitly place in [0.07, 0.93] so this is structural).
+      var _edgeOk = true;
+      for (var _i = 0; _i < 10 && _edgeOk; ++_i) {
+        var _trial = generateObstacles(_i * 7919 + 7);
+        for (var _j = 0; _j < _trial.length; ++_j) {
+          var _o = _trial[_j];
+          if (_o.type === 'wall') continue;
+          if (_o.x < 0.05 || _o.x > 0.95 ||
+              _o.y < 0.05 || _o.y > 0.95) { _edgeOk = false; break; }
+        }
+      }
+      _check('10 seeds: stone centers >0.05 from edge', _edgeOk);
+
+      // Every obstacle in the current layout has finite, in-canvas coordinates.
+      var _validOk = true;
+      for (var _vi = 0; _vi < OBSTACLES.length && _validOk; ++_vi) {
+        var _v = OBSTACLES[_vi];
+        if (_v.type === 'circle' || _v.type === 'ellipse' || _v.type === 'polygon') {
+          if (!isFinite(_v.x) || !isFinite(_v.y) ||
+              _v.x < 0 || _v.x > 1 || _v.y < 0 || _v.y > 1) _validOk = false;
+        } else if (_v.type === 'wall') {
+          for (var _vs = 0; _vs < _v.segments.length && _validOk; ++_vs) {
+            var _seg = _v.segments[_vs];
+            if (!isFinite(_seg.x) || !isFinite(_seg.y) ||
+                !isFinite(_seg.w) || !isFinite(_seg.h)) { _validOk = false; break; }
+            if (_seg.x < -1e-6 || _seg.y < -1e-6 || _seg.w <= 0 || _seg.h <= 0 ||
+                _seg.x + _seg.w > 1.0001 || _seg.y + _seg.h > 1.0001) {
+              _validOk = false; break;
+            }
+          }
+        }
+      }
+      _check('all obstacles have valid positions in [0,1]', _validOk);
+
+      console.log('[test] Smoke tests: ' + tPass + ' pass, ' + tFail + ' fail.');
+      window.__RIPPLE_TEST_RESULTS = { pass: tPass, fail: tFail };
+    }
 
     // Wire UI + input
     attachUI();
@@ -1108,6 +1483,28 @@
     window.__ripple_pause = function(v) {
       setPaused(v);
     };
+    // Set the active seed. Number → uint32. String → FNV-1a hash. No-arg → read.
+    window.__ripple_seed = function(input) {
+      if (input === undefined) return currentSeed;
+      var s;
+      if (typeof input === 'number') {
+        s = input >>> 0;
+      } else if (typeof input === 'string') {
+        s = hashSeed(input);
+      } else {
+        return currentSeed;
+      }
+      applySeed(s);
+      return s;
+    };
+    // Roll a new random layout. In test mode, this is forced to seed 0 so it
+    // stays a no-op for deterministic regression checks.
+    window.__ripple_randomize = function() {
+      if (TEST_MODE) { applySeed(0); return 0; }
+      var s = (Date.now() ^ Math.floor(Math.random() * 0xFFFFFFFF)) >>> 0;
+      applySeed(s);
+      return s;
+    };
     window.__ripple_state = function() {
       return {
         simSize: SIM_SIZE,
@@ -1115,7 +1512,9 @@
         paused: paused,
         pendingImpulses: pendingImpulses.length,
         time: time,
-        testMode: TEST_MODE
+        testMode: TEST_MODE,
+        seed: currentSeed,
+        obstacleCount: OBSTACLES.length
       };
     };
 
