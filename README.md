@@ -13,15 +13,19 @@
 | 기능 | 구현 |
 |---|---|
 | 클릭으로 물결 발생 | 마우스/터치 + 드래그 강도 스케일링 |
-| 장애물 반사 | 3개의 원형 stone + 1개의 벽 (gap 포함) |
+| 랜덤 지형 | 페이지 로드 시마다 다른 배치 (5-9개 장애물, circle/ellipse/polygon/wall 혼합) |
+| 시드 기반 결정성 | `?seed=N` 또는 `?seed=문자열` — 같은 seed는 항상 같은 배치 |
+| 장애물 반사 | Neumann 경계 — 모든 도형 타입에서 일관 |
 | 벽 반사 | 경계 텍스처의 1-texel 외곽 = 캔버스 가장자리 |
 | 두 ripple의 간섭 | wave equation의 선형성으로 자연 발생 |
 | 고해상도 height map | `RGBA32F` ping-pong 텍스처, 기본 1024×1024 |
+| **자연 호반 배경** | FBM 모래 + 능선 잔물결 + Voronoi 자갈 + 큰 바위 + grain 노이즈 |
+| **움직이는 caustics** | 두 개의 표류 FBM 필드를 inverted blend로 자연 광 패턴 생성 |
 | 타일 굴절 | 그라디언트 → 노멀 → UV 변위 + chromatic aberration |
 | 반사(specular) | Blinn-Phong, 광원 방향 perturbation |
 | 수심 기반 색조 | Beer-Lambert 식 기반 trough=짙은 청색, peak=밝은 청록색 |
-| 정지 시 수중감 | 미세 ambient warp + vignette + 푸른빛 바닥 |
-| UI | damping 슬라이더, 일시정지, 리셋, FPS, SIM 해상도 |
+| 정지 시 수중감 | 미세 ambient warp + vignette + caustics + 푸른빛 바닥 |
+| UI | damping 슬라이더, 일시정지, 리셋, 🎲 randomize, seed 표시, FPS, SIM 해상도 |
 | 테스트 모드 | `?test=1` (결정론적 baseline), `?res=512\|1024\|2048` |
 
 ---
@@ -45,7 +49,9 @@ python3 -m http.server 8000
 
 | 파라미터 | 효과 |
 |---|---|
-| `?test=1` | 결정론적 모드 (damping=0.970, ambient warp=0) — 회귀 테스트용 |
+| `?seed=42` | 특정 시드로 지형 결정 (정수) |
+| `?seed=hello` | 문자열 시드 — FNV-1a 해시로 결정 (재현 가능 공유) |
+| `?test=1` | 결정론적 모드 (damping=0.970, ambient warp=0, seed=0) — 회귀 테스트용 |
 | `?res=512` | 시뮬레이션 해상도를 512×512로 낮춤 (저사양 GPU) |
 | `?res=2048` | 2048×2048로 높임 (고사양 GPU) |
 | `?warp=0` | ambient warp 비활성화 |
@@ -60,6 +66,7 @@ python3 -m http.server 8000
 |---|---|
 | **클릭** | 해당 위치에 ripple 발생 |
 | **클릭 + 드래그** | 드래그 거리에 비례해 amplitude 1.0× ~ 1.5× 증폭 |
+| **🎲 Randomize 버튼** | 새 시드 생성 → 새 지형 배치 + URL에 seed 기록 |
 | **Damping 슬라이더** | 0.950 (급속 감쇠) ↔ 0.999 (거의 영구) |
 | **Pause 버튼** | 시뮬레이션 정지, 마지막 프레임 유지 |
 | **Reset 버튼** | height field 초기화 (장애물은 유지) |
@@ -106,9 +113,21 @@ tint:      depth_t = clamp(-h * 1.4 + 0.5, 0, 1)
 - **Beer-Lambert 수심**: trough(깊은 물) = 짙은 청색, peak(얕은 물) = 밝은 청록색
 - **Edge vignette**: 캔버스 가장자리 어둡게 → 수조 깊이감
 
-### 6. 절차적 타일 바닥
-- `TILE_FS` 셰이더가 한 번에 1024² RGBA8 텍스처로 베이크
-- warm/cool 랜덤 타일 + grout + bevel highlight + FBM noise
+### 6. 절차적 자연 호반 바닥
+- `TILE_FS` 셰이더가 한 번에 1024² RGBA8 텍스처로 베이크 (시드 기반 변형)
+- 구성: FBM 모래 + 능선 잔물결 + Voronoi 자갈 + 큰 바위 + 미세 grain
+- 그리드 패턴 없음 — `u_seed` uniform이 배치 변형
+
+### 7. 움직이는 Caustics
+- `RENDER_FS`에서 매 프레임 두 FBM 필드를 표류시킴 (`u_time` 기반)
+- `caustic = pow(1 - abs(c1 - c2) * 1.8, 4) * 0.35` — 역차로 밝은 띠 생성
+- `depthT`로 가중 — trough에서 강하게, peak에서 약하게
+
+### 8. 랜덤 지형 생성
+- `mulberry32` PRNG로 결정성 보장
+- `generateObstacles(seed)`: 5-9개 장애물 (circle 50%, ellipse 25%, polygon 25%) + 30% 확률로 wall
+- 장애물 간 거리 + 가장자리 마진 검증으로 겹침 방지
+- `applySeed(seed)` → `OBSTACLES` 재생성 + boundary 다시 그리기 + floor 재베이크 + URL 업데이트
 
 ---
 
@@ -127,19 +146,23 @@ ripple-tank/
 
 ## 🔬 검증 (Verification)
 
-Playwright headless Chromium으로 7개 시나리오 검증 완료 (모두 PASS):
+Playwright headless Chromium으로 11개 시나리오 검증 완료 (모두 PASS):
 
 | ID | 시나리오 | 증거 |
 |---|---|---|
-| S1 | 페이지 로드 → 캔버스 + 타일 + 장애물 + UI 표시 | 스크린샷 + 콘솔 에러 0개 |
-| S2 | 클릭 시 ripple 발생 + 시간에 따라 propagation | `prop-0100ms` → `prop-2500ms` 동심원 패턴 |
-| S3 | 장애물 반사 | `reflect-1800ms` 클릭 지점에서 wave 반사 |
-| S4 | 두 ripple 간섭 | `interf-800ms` 좌/우 두 wave 동시 존재 |
-| S5 | SIM_SIZE = 1024 | state inspector: `simSize: 1024` |
-| S6 | 타일 굴절 | `refract-pre` vs `refract-peak` — 타일이 wave 아래에서 휘어짐 |
-| S7 | 단일 HTML, `file://` 지원 | `file://` 로드 시 RIPPLE_READY=true |
+| S1 | 페이지 로드 → 호반 바닥 + caustics + 랜덤 장애물 + UI 표시 | 스크린샷 + 콘솔 에러 0개 |
+| S2 | 클릭 시 ripple 발생 + 시간에 따라 propagation | 스크린샷 (pre / mid / late) |
+| S3 | `__ripple_randomize()` 3회 → 매번 다른 seed와 다른 배치 | 스크린샷 + state 변화 |
+| S4 | `?seed=42` → 같은 seed는 항상 같은 배치 (결정성) | 같은 시드 두 번 동일 |
+| S5 | 다른 seed → 다른 배치 | seed 99 vs 42 vs 12345 비교 |
+| S6 | 문자열 seed (`?seed=hello`) → FNV-1a 해시, 결정성 보장 | 두 번 동일 결과 |
+| S7 | `?test=1` → seed=0 (테스트 모드 결정성) | state.seed === 0 |
+| S8 | 두 ripple 간섭 | 클릭 2회 → 간섭 패턴 |
+| S9 | 타일 굴절 | pre/peak 클로즈업 — 타일이 휘어짐 |
+| S10 | Wave propagation | 클릭 후 2초 → 동심원 확장 |
+| S11 | 시드=0 호반 baseline | `docs/screenshot-pond-rest.png` |
 
-`window.__ripple_state()` inspector, `window.__ripple_click(u, v)` 등 프로그래매틱 훅으로 자동화 가능.
+`window.__ripple_state()` inspector, `__ripple_click`, `__ripple_reset`, `__ripple_seed(n|'s')`, `__ripple_randomize()` 프로그래매틱 훅.
 
 ---
 
