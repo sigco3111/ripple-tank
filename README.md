@@ -10,7 +10,7 @@
 
 ## 🎬 라이브 데모
 
-> **👉 [https://ripple-tank.vercel.app/](https://ripple-tank.vercel.app/)** — 브라우저에서 바로 실행 (WebGL2, 60fps)
+> **👉 [https://sigco3111.github.io/ripple-tank/](https://sigco3111.github.io/ripple-tank/)** — 브라우저에서 바로 실행 (WebGL2, 60fps)
 
 | | |
 |---|---|
@@ -88,7 +88,7 @@ python3 -m http.server 8000
 
 ### 방법 3: 라이브 데모 (Vercel)
 배포 후 URL이 발급되면 별도 설치 없이 바로 확인 가능합니다.
-👉 https://ripple-tank.vercel.app/
+👉 https://sigco3111.github.io/ripple-tank/
 
 ---
 
