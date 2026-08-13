@@ -14,7 +14,7 @@
 
 | | |
 |---|---|
-| ![Demo](https://img.shields.io/badge/Live-Demo-7C3AED?style=for-the-badge&logo=vercel&logoColor=white) | [![Repo](https://img.shields.io/badge/GitHub-sigco3111%2Fripple--tank-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sigco3111/ripple-tank) |
+| ![Demo](https://img.shields.io/badge/Live-Demo-222222?style=for-the-badge&logo=githubpages&logoColor=white) | [![Repo](https://img.shields.io/badge/GitHub-sigco3111%2Fripple--tank-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sigco3111/ripple-tank) |
 | ![Status](https://img.shields.io/badge/Status-Live-22C55E?style=flat-square) | ![Stack](https://img.shields.io/badge/Stack-WebGL2-FF6F00?style=flat-square&logo=webgl&logoColor=white) |
 | ![License](https://img.shields.io/badge/License-MIT-F1C40F?style=flat-square) | ![Deps](https://img.shields.io/badge/Dependencies-0-9CA3AF?style=flat-square) |
 
@@ -86,7 +86,7 @@ python3 -m http.server 8000
 # → http://localhost:8000
 ```
 
-### 방법 3: 라이브 데모 (Vercel)
+### 방법 3: 라이브 데모 (GitHub Pages)
 배포 후 URL이 발급되면 별도 설치 없이 바로 확인 가능합니다.
 👉 https://sigco3111.github.io/ripple-tank/
 
